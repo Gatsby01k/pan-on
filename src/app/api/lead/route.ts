@@ -1,8 +1,18 @@
 import { NextResponse } from 'next/server';
 
-const requiredFields = ['name', 'email', 'telegram', 'trafficType', 'monthlyVolume', 'topGeo'] as const;
+const requiredFields = [
+  'name',
+  'email',
+  'telegram',
+  'trafficType',
+  'monthlyVolume',
+  'topGeo',
+] as const;
 
-type LeadPayload = Record<(typeof requiredFields)[number] | 'company' | 'message', string>;
+type RequiredField = (typeof requiredFields)[number];
+type LeadKey = RequiredField | 'company' | 'message';
+
+type LeadPayload = Record<LeadKey, string>;
 
 function escapeHtml(input: string) {
   return input
@@ -15,12 +25,15 @@ function escapeHtml(input: string) {
 
 function validate(payload: Partial<LeadPayload>) {
   const missing = requiredFields.filter((field) => !payload[field]?.trim());
+
   if (missing.length) {
     return `Missing required fields: ${missing.join(', ')}`;
   }
+
   if (!payload.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
     return 'Please provide a valid email address.';
   }
+
   return null;
 }
 
@@ -47,8 +60,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: validationError }, { status: 400 });
   }
 
+  const leadKeys: LeadKey[] = [...requiredFields, 'company', 'message'];
+
   const lead = Object.fromEntries(
-    [...requiredFields, 'company', 'message'].map((key) => [key, payload[key]?.trim() || ''])
+    leadKeys.map((key) => [key, (payload[key] ?? '').trim()])
   ) as LeadPayload;
 
   const result = {
@@ -59,20 +74,26 @@ export async function POST(request: Request) {
 
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
   const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+
   if (telegramBotToken && telegramChatId) {
-    const telegramResponse = await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: telegramChatId,
-        text: buildTelegramMessage(lead),
-      }),
-      cache: 'no-store',
-    });
+    const telegramResponse = await fetch(
+      `https://api.telegram.org/bot${telegramBotToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: telegramChatId,
+          text: buildTelegramMessage(lead),
+        }),
+        cache: 'no-store',
+      }
+    );
+
     result.telegramSent = telegramResponse.ok;
   }
 
   const webhookUrl = process.env.LEAD_WEBHOOK_URL;
+
   if (webhookUrl) {
     const webhookResponse = await fetch(webhookUrl, {
       method: 'POST',
@@ -84,6 +105,7 @@ export async function POST(request: Request) {
       }),
       cache: 'no-store',
     });
+
     result.webhookSent = webhookResponse.ok;
   }
 
@@ -94,10 +116,14 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: result.telegramSent || result.webhookSent
-      ? 'Application received. We will review it and move qualified conversations into Telegram quickly.'
-      : 'Application received. Configure TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID or LEAD_WEBHOOK_URL to enable instant delivery.',
+    message:
+      result.telegramSent || result.webhookSent
+        ? 'Application received. We will review it and move qualified conversations into Telegram quickly.'
+        : 'Application received. Configure TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID or LEAD_WEBHOOK_URL to enable instant delivery.',
     delivery: result,
-    safePreviewHtml: buildTelegramMessage(lead).split('\n').map((line) => escapeHtml(line)).join('<br/>'),
+    safePreviewHtml: buildTelegramMessage(lead)
+      .split('\n')
+      .map((line) => escapeHtml(line))
+      .join('<br/>'),
   });
 }
