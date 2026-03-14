@@ -244,7 +244,7 @@ body {
 
   .form-field span {
   @apply text-[10px] uppercase tracking-[0.16em];
-  color: rgb(255 255 255 / 0.46);
+  color: rgba(255, 255, 255, 0.46);
 }
 
   .form-field input,
